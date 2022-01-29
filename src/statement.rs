@@ -805,7 +805,10 @@ impl Statement<'_> {
     pub(crate) fn check_no_tail(&self) -> Result<()> {
         Ok(())
     }
+}
 
+#[cfg(feature = "statement_cache")]
+impl Statement<'_> {
     /// Safety: This is unsafe, because using `sqlite3_stmt` after the
     /// connection has closed is illegal, but `RawStatement` does not enforce
     /// this, as it loses our protective `'conn` lifetime bound.

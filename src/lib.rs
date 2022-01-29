@@ -65,11 +65,13 @@ use std::str;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
+#[cfg(feature = "statement_cache")]
 use crate::cache::StatementCache;
 use crate::inner_connection::{InnerConnection, BYPASS_SQLITE_INIT};
 use crate::raw_statement::RawStatement;
 use crate::types::ValueRef;
 
+#[cfg(feature = "statement_cache")]
 pub use crate::cache::CachedStatement;
 pub use crate::column::Column;
 pub use crate::error::Error;
@@ -92,6 +94,7 @@ pub mod backup;
 #[cfg_attr(docsrs, doc(cfg(feature = "blob")))]
 pub mod blob;
 mod busy;
+#[cfg(feature = "statement_cache")]
 mod cache;
 #[cfg(feature = "collation")]
 #[cfg_attr(docsrs, doc(cfg(feature = "collation")))]
@@ -136,6 +139,7 @@ pub(crate) mod util;
 pub(crate) use util::SmallCString;
 
 // Number of cached prepared statements we'll hold on to.
+#[cfg(feature = "statement_cache")]
 const STATEMENT_CACHE_DEFAULT_CAPACITY: usize = 16;
 /// To be used when your statement has no [parameter][sqlite-varparam].
 ///
@@ -333,6 +337,7 @@ impl DatabaseName<'_> {
 /// A connection to a SQLite database.
 pub struct Connection {
     db: RefCell<InnerConnection>,
+    #[cfg(feature = "statement_cache")]
     cache: StatementCache,
     path: Option<PathBuf>,
 }
@@ -342,6 +347,7 @@ unsafe impl Send for Connection {}
 impl Drop for Connection {
     #[inline]
     fn drop(&mut self) {
+        #[cfg(feature = "statement_cache")]
         self.flush_prepared_statement_cache();
     }
 }
@@ -399,6 +405,7 @@ impl Connection {
         let c_path = path_to_cstring(path.as_ref())?;
         InnerConnection::open_with_flags(&c_path, flags, None).map(|db| Connection {
             db: RefCell::new(db),
+            #[cfg(feature = "statement_cache")]
             cache: StatementCache::with_capacity(STATEMENT_CACHE_DEFAULT_CAPACITY),
             path: Some(path.as_ref().to_path_buf()),
         })
@@ -424,6 +431,7 @@ impl Connection {
         let c_vfs = str_to_cstring(vfs)?;
         InnerConnection::open_with_flags(&c_path, flags, Some(&c_vfs)).map(|db| Connection {
             db: RefCell::new(db),
+            #[cfg(feature = "statement_cache")]
             cache: StatementCache::with_capacity(STATEMENT_CACHE_DEFAULT_CAPACITY),
             path: Some(path.as_ref().to_path_buf()),
         })
@@ -723,6 +731,7 @@ impl Connection {
     /// Will return `Err` if the underlying SQLite call fails.
     #[inline]
     pub fn close(self) -> Result<(), (Connection, Error)> {
+        #[cfg(feature = "statement_cache")]
         self.flush_prepared_statement_cache();
         let r = self.db.borrow_mut().close();
         r.map_err(move |err| (self, err))
@@ -882,6 +891,7 @@ impl Connection {
         let db = InnerConnection::new(db, false);
         Ok(Connection {
             db: RefCell::new(db),
+            #[cfg(feature = "statement_cache")]
             cache: StatementCache::with_capacity(STATEMENT_CACHE_DEFAULT_CAPACITY),
             path: db_path,
         })

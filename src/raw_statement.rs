@@ -6,7 +6,6 @@ use crate::util::SqliteMallocString;
 use std::ffi::CStr;
 use std::os::raw::c_int;
 use std::ptr;
-use std::sync::Arc;
 
 // Private newtype for raw sqlite3_stmts that finalize themselves when dropped.
 #[derive(Debug)]
@@ -25,7 +24,8 @@ pub struct RawStatement {
     //
     // One example of a case where the result of `sqlite_sql` and the value in
     // `statement_cache_key` might differ is if the statement has a `tail`.
-    statement_cache_key: Option<Arc<str>>,
+    #[cfg(feature = "statement_cache")]
+    statement_cache_key: Option<std::sync::Arc<str>>,
 }
 
 impl RawStatement {
@@ -35,6 +35,7 @@ impl RawStatement {
             ptr: stmt,
             tail,
             cache: ParamIndexCache::default(),
+            #[cfg(feature = "statement_cache")]
             statement_cache_key: None,
         }
     }
@@ -42,16 +43,6 @@ impl RawStatement {
     #[inline]
     pub fn is_null(&self) -> bool {
         self.ptr.is_null()
-    }
-
-    #[inline]
-    pub(crate) fn set_statement_cache_key(&mut self, p: impl Into<Arc<str>>) {
-        self.statement_cache_key = Some(p.into());
-    }
-
-    #[inline]
-    pub(crate) fn statement_cache_key(&self) -> Option<Arc<str>> {
-        self.statement_cache_key.clone()
     }
 
     #[inline]
@@ -170,11 +161,6 @@ impl RawStatement {
     }
 
     #[inline]
-    pub fn clear_bindings(&self) -> c_int {
-        unsafe { ffi::sqlite3_clear_bindings(self.ptr) }
-    }
-
-    #[inline]
     pub fn sql(&self) -> Option<&CStr> {
         if self.ptr.is_null() {
             None
@@ -223,6 +209,24 @@ impl RawStatement {
     #[inline]
     pub fn tail(&self) -> usize {
         self.tail
+    }
+}
+
+#[cfg(feature = "statement_cache")]
+impl RawStatement {
+    #[inline]
+    pub(crate) fn set_statement_cache_key(&mut self, p: impl Into<std::sync::Arc<str>>) {
+        self.statement_cache_key = Some(p.into());
+    }
+
+    #[inline]
+    pub(crate) fn statement_cache_key(&self) -> Option<std::sync::Arc<str>> {
+        self.statement_cache_key.clone()
+    }
+
+    #[inline]
+    pub fn clear_bindings(&self) -> c_int {
+        unsafe { ffi::sqlite3_clear_bindings(self.ptr) }
     }
 }
 
