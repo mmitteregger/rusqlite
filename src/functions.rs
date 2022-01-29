@@ -1038,8 +1038,6 @@ mod test {
     #[test]
     #[cfg(feature = "window")]
     fn test_window() -> Result<()> {
-        use fallible_iterator::FallibleIterator;
-
         let db = Connection::open_in_memory()?;
         db.create_window_function(
             "sumint",
@@ -1063,10 +1061,10 @@ mod test {
                  FROM t3 ORDER BY x;",
         )?;
 
-        let results: Vec<(String, i64)> = stmt
+        let results = stmt
             .query([])?
             .map(|row| Ok((row.get("x")?, row.get("sum_y")?)))
-            .collect()?;
+            .collect::<Result<Vec<(String, i64)>>>()?;
         let expected = vec![
             ("a".to_owned(), 9),
             ("b".to_owned(), 12),

@@ -364,7 +364,6 @@ impl From<csv::Error> for Error {
 mod test {
     use crate::vtab::csvtab;
     use crate::{Connection, Result};
-    use fallible_iterator::FallibleIterator;
 
     #[test]
     fn test_csv_module() -> Result<()> {
@@ -399,7 +398,7 @@ mod test {
             )?;
 
             let mut rows = s.query([])?;
-            let row = rows.next()?.unwrap();
+            let row = rows.next().unwrap()?;
             assert_eq!(row.get_unwrap::<_, i32>(0), 2);
         }
         db.execute_batch("DROP TABLE vtab")

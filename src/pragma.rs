@@ -172,7 +172,7 @@ impl Connection {
         f: F,
     ) -> Result<T>
     where
-        F: FnOnce(&Row<'_>) -> Result<T>,
+        F: FnOnce(Row<'_>) -> Result<T>,
     {
         let mut query = Sql::new();
         query.push_pragma(schema_name, pragma_name)?;
@@ -195,9 +195,9 @@ impl Connection {
         let mut query = Sql::new();
         query.push_pragma(schema_name, pragma_name)?;
         let mut stmt = self.prepare(&query)?;
-        let mut rows = stmt.query([])?;
-        while let Some(result_row) = rows.next()? {
-            let row = result_row;
+        let rows = stmt.query([])?;
+        for result_row in rows {
+            let row = &result_row?;
             f(row)?;
         }
         Ok(())
@@ -232,9 +232,9 @@ impl Connection {
         sql.push_value(&pragma_value)?;
         sql.close_brace();
         let mut stmt = self.prepare(&sql)?;
-        let mut rows = stmt.query([])?;
-        while let Some(result_row) = rows.next()? {
-            let row = result_row;
+        let rows = stmt.query([])?;
+        for result_row in rows {
+            let row = &result_row?;
             f(row)?;
         }
         Ok(())
@@ -274,7 +274,7 @@ impl Connection {
         f: F,
     ) -> Result<T>
     where
-        F: FnOnce(&Row<'_>) -> Result<T>,
+        F: FnOnce(Row<'_>) -> Result<T>,
         V: ToSql,
     {
         let mut sql = Sql::new();
@@ -384,10 +384,10 @@ mod test {
         let db = Connection::open_in_memory()?;
         let mut table_info = db.prepare("SELECT * FROM pragma_table_info(?)")?;
         let mut columns = Vec::new();
-        let mut rows = table_info.query(["sqlite_master"])?;
+        let rows = table_info.query(["sqlite_master"])?;
 
-        while let Some(row) = rows.next()? {
-            let row = row;
+        for result_row in rows {
+            let row = result_row?;
             let column: String = row.get(1)?;
             columns.push(column);
         }

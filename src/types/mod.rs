@@ -224,7 +224,7 @@ mod test {
         let mut rows = stmt.query([])?;
 
         {
-            let row1 = rows.next()?.unwrap();
+            let row1 = rows.next().unwrap()?;
             let s1: Option<String> = row1.get_unwrap(0);
             let b1: Option<Vec<u8>> = row1.get_unwrap(1);
             assert_eq!(s.unwrap(), s1.unwrap());
@@ -232,7 +232,7 @@ mod test {
         }
 
         {
-            let row2 = rows.next()?.unwrap();
+            let row2 = rows.next().unwrap()?;
             let s2: Option<String> = row2.get_unwrap(0);
             let b2: Option<Vec<u8>> = row2.get_unwrap(1);
             assert!(s2.is_none());
@@ -258,7 +258,7 @@ mod test {
         let mut stmt = db.prepare("SELECT b, t, i, f, n FROM foo")?;
         let mut rows = stmt.query([])?;
 
-        let row = rows.next()?.unwrap();
+        let row = rows.next().unwrap()?;
 
         // check the correct types come back as expected
         assert_eq!(vec![1, 2], row.get::<_, Vec<u8>>(0)?);
@@ -368,7 +368,7 @@ mod test {
         let mut stmt = db.prepare("SELECT b, t, i, f, n FROM foo")?;
         let mut rows = stmt.query([])?;
 
-        let row = rows.next()?.unwrap();
+        let row = rows.next().unwrap()?;
         assert_eq!(Value::Blob(vec![1, 2]), row.get::<_, Value>(0)?);
         assert_eq!(Value::Text(String::from("text")), row.get::<_, Value>(1)?);
         assert_eq!(Value::Integer(1), row.get::<_, Value>(2)?);

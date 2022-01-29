@@ -194,7 +194,7 @@ mod test {
         )?;
         let mut stmt = db.prepare("SELECT x as renamed, y FROM foo")?;
         let mut rows = stmt.query([])?;
-        let row = rows.next()?.unwrap();
+        let row = rows.next().unwrap()?;
         match row.get::<_, String>(0).unwrap_err() {
             Error::InvalidColumnType(idx, name, ty) => {
                 assert_eq!(idx, 0);

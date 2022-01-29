@@ -621,7 +621,7 @@ impl Connection {
     pub fn query_row<T, P, F>(&self, sql: &str, params: P, f: F) -> Result<T>
     where
         P: Params,
-        F: FnOnce(&Row<'_>) -> Result<T>,
+        F: FnOnce(Row<'_>) -> Result<T>,
     {
         let mut stmt = self.prepare(sql)?;
         stmt.check_no_tail()?;
@@ -645,7 +645,7 @@ impl Connection {
     #[deprecated = "You can use `query_row` with named params now."]
     pub fn query_row_named<T, F>(&self, sql: &str, params: &[(&str, &dyn ToSql)], f: F) -> Result<T>
     where
-        F: FnOnce(&Row<'_>) -> Result<T>,
+        F: FnOnce(Row<'_>) -> Result<T>,
     {
         self.query_row(sql, params, f)
     }
@@ -679,7 +679,7 @@ impl Connection {
     pub fn query_row_and_then<T, E, P, F>(&self, sql: &str, params: P, f: F) -> Result<T, E>
     where
         P: Params,
-        F: FnOnce(&Row<'_>) -> Result<T, E>,
+        F: FnOnce(Row<'_>) -> Result<T, E>,
         E: convert::From<Error>,
     {
         let mut stmt = self.prepare(sql)?;
@@ -1105,7 +1105,6 @@ doc_comment::doctest!("../README.md");
 mod test {
     use super::*;
     use crate::ffi;
-    use fallible_iterator::FallibleIterator;
     use std::error::Error as StdError;
     use std::fmt;
 
@@ -1411,23 +1410,17 @@ mod test {
 
         let mut query = db.prepare("SELECT x FROM foo WHERE x < ? ORDER BY x DESC")?;
         {
-            let mut rows = query.query([4i32])?;
-            let mut v = Vec::<i32>::new();
-
-            while let Some(row) = rows.next()? {
-                v.push(row.get(0)?);
-            }
+            let v = query.query([4i32])?
+                .map(|row| row.get(0))
+                .collect::<Result<Vec<i32>>>()?;
 
             assert_eq!(v, [3i32, 2, 1]);
         }
 
         {
-            let mut rows = query.query([3i32])?;
-            let mut v = Vec::<i32>::new();
-
-            while let Some(row) = rows.next()? {
-                v.push(row.get(0)?);
-            }
+            let v = query.query([3i32])?
+                .map(|row| row.get(0))
+                .collect::<Result<Vec<i32>>>()?;
 
             assert_eq!(v, [2i32, 1]);
         }
@@ -1567,9 +1560,8 @@ mod test {
         {
             let mut rows = stmt.query([])?;
             assert!(!db.is_busy());
-            let row = rows.next()?;
+            rows.next().unwrap()?;
             assert!(db.is_busy());
-            assert!(row.is_some());
         }
         assert!(!db.is_busy());
         Ok(())
@@ -1683,9 +1675,10 @@ mod test {
         }
 
         let mut query = db.prepare("SELECT i, x FROM foo")?;
-        let mut rows = query.query([])?;
+        let rows = query.query([])?;
 
-        while let Some(row) = rows.next()? {
+        for result_row in rows {
+            let row = result_row?;
             let i = row.get_ref(0)?.as_i64()?;
             let expect = vals[i as usize];
             let x = row.get_ref("x")?.as_str()?;

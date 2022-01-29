@@ -135,11 +135,6 @@ impl Statement<'_> {
     /// Execute the prepared statement, returning a handle to the resulting
     /// rows.
     ///
-    /// Due to lifetime restrictions, the rows handle returned by `query` does
-    /// not implement the `Iterator` trait. Consider using
-    /// [`query_map`](Statement::query_map) or
-    /// [`query_and_then`](Statement::query_and_then) instead, which do.
-    ///
     /// ## Example
     ///
     /// ### Use without parameters
@@ -148,13 +143,7 @@ impl Statement<'_> {
     /// # use rusqlite::{Connection, Result};
     /// fn get_names(conn: &Connection) -> Result<Vec<String>> {
     ///     let mut stmt = conn.prepare("SELECT name FROM people")?;
-    ///     let mut rows = stmt.query([])?;
-    ///
-    ///     let mut names = Vec::new();
-    ///     while let Some(row) = rows.next()? {
-    ///         names.push(row.get(0)?);
-    ///     }
-    ///
+    ///     let names = stmt.query([])?.map(|row| row.get(0)).collect::<Result<Vec<_>>>()?;
     ///     Ok(names)
     /// }
     /// ```
@@ -165,8 +154,9 @@ impl Statement<'_> {
     /// # use rusqlite::{Connection, Result};
     /// fn query(conn: &Connection, name: &str) -> Result<()> {
     ///     let mut stmt = conn.prepare("SELECT * FROM test where name = ?")?;
-    ///     let mut rows = stmt.query(rusqlite::params![name])?;
-    ///     while let Some(row) = rows.next()? {
+    ///     let rows = stmt.query(rusqlite::params![name])?;
+    ///     for result_row in rows {
+    ///         let row = result_row?;
     ///         // ...
     ///     }
     ///     Ok(())
@@ -179,8 +169,9 @@ impl Statement<'_> {
     /// # use rusqlite::{Connection, Result};
     /// fn query(conn: &Connection, name: &str) -> Result<()> {
     ///     let mut stmt = conn.prepare("SELECT * FROM test where name = ?")?;
-    ///     let mut rows = stmt.query([name])?;
-    ///     while let Some(row) = rows.next()? {
+    ///     let rows = stmt.query([name])?;
+    ///     for result_row in rows {
+    ///         let row = result_row?;
     ///         // ...
     ///     }
     ///     Ok(())
@@ -193,8 +184,9 @@ impl Statement<'_> {
     /// # use rusqlite::{Connection, Result};
     /// fn query(conn: &Connection) -> Result<()> {
     ///     let mut stmt = conn.prepare("SELECT * FROM test where name = :name")?;
-    ///     let mut rows = stmt.query(&[(":name", "one")])?;
-    ///     while let Some(row) = rows.next()? {
+    ///     let rows = stmt.query(&[(":name", "one")])?;
+    ///     for result_row in rows {
+    ///         let row = result_row?;
     ///         // ...
     ///     }
     ///     Ok(())
@@ -208,8 +200,9 @@ impl Statement<'_> {
     /// # use rusqlite::{Connection, Result, named_params};
     /// fn query(conn: &Connection) -> Result<()> {
     ///     let mut stmt = conn.prepare("SELECT * FROM test where name = :name")?;
-    ///     let mut rows = stmt.query(named_params! { ":name": "one" })?;
-    ///     while let Some(row) = rows.next()? {
+    ///     let rows = stmt.query(named_params! { ":name": "one" })?;
+    ///     for result_row in rows {
+    ///         let row = result_row?;
     ///         // ...
     ///     }
     ///     Ok(())
@@ -291,9 +284,9 @@ impl Statement<'_> {
     ///
     /// Will return `Err` if binding parameters fails.
     pub fn query_map<T, P, F>(&mut self, params: P, f: F) -> Result<MappedRows<'_, F>>
-    where
-        P: Params,
-        F: FnMut(&Row<'_>) -> Result<T>,
+        where
+            P: Params,
+            F: FnMut(&Row<'_>) -> Result<T>,
     {
         self.query(params).map(|rows| rows.mapped(f))
     }
@@ -322,8 +315,8 @@ impl Statement<'_> {
         params: &[(&str, &dyn ToSql)],
         f: F,
     ) -> Result<MappedRows<'_, F>>
-    where
-        F: FnMut(&Row<'_>) -> Result<T>,
+        where
+            F: FnMut(&Row<'_>) -> Result<T>,
     {
         self.query_map(params, f)
     }
@@ -384,10 +377,10 @@ impl Statement<'_> {
     /// Will return `Err` if binding parameters fails.
     #[inline]
     pub fn query_and_then<T, E, P, F>(&mut self, params: P, f: F) -> Result<AndThenRows<'_, F>>
-    where
-        P: Params,
-        E: convert::From<Error>,
-        F: FnMut(&Row<'_>) -> Result<T, E>,
+        where
+            P: Params,
+            E: convert::From<Error>,
+            F: FnMut(&Row<'_>) -> Result<T, E>,
     {
         self.query(params).map(|rows| rows.and_then(f))
     }
@@ -414,9 +407,9 @@ impl Statement<'_> {
         params: &[(&str, &dyn ToSql)],
         f: F,
     ) -> Result<AndThenRows<'_, F>>
-    where
-        E: convert::From<Error>,
-        F: FnMut(&Row<'_>) -> Result<T, E>,
+        where
+            E: convert::From<Error>,
+            F: FnMut(&Row<'_>) -> Result<T, E>,
     {
         self.query_and_then(params, f)
     }
@@ -426,7 +419,7 @@ impl Statement<'_> {
     #[inline]
     pub fn exists<P: Params>(&mut self, params: P) -> Result<bool> {
         let mut rows = self.query(params)?;
-        let exists = rows.next()?.is_some();
+        let exists = rows.next().is_some();
         Ok(exists)
     }
 
@@ -446,9 +439,9 @@ impl Statement<'_> {
     ///
     /// Will return `Err` if the underlying SQLite call fails.
     pub fn query_row<T, P, F>(&mut self, params: P, f: F) -> Result<T>
-    where
-        P: Params,
-        F: FnOnce(&Row<'_>) -> Result<T>,
+        where
+            P: Params,
+            F: FnOnce(Row<'_>) -> Result<T>,
     {
         let mut rows = self.query(params)?;
 
@@ -477,8 +470,8 @@ impl Statement<'_> {
     /// or if the underlying SQLite call fails.
     #[deprecated = "You can use `query_row` with named params now."]
     pub fn query_row_named<T, F>(&mut self, params: &[(&str, &dyn ToSql)], f: F) -> Result<T>
-    where
-        F: FnOnce(&Row<'_>) -> Result<T>,
+        where
+            F: FnOnce(Row<'_>) -> Result<T>,
     {
         self.query_row(params, f)
     }
@@ -546,9 +539,9 @@ impl Statement<'_> {
 
     #[inline]
     pub(crate) fn bind_parameters<P>(&mut self, params: P) -> Result<()>
-    where
-        P: IntoIterator,
-        P::Item: ToSql,
+        where
+            P: IntoIterator,
+            P::Item: ToSql,
     {
         let expected = self.stmt.bind_parameter_count();
         let mut index = 0;
@@ -619,8 +612,9 @@ impl Statement<'_> {
     ///     let name_index = stmt.parameter_index(":name")?.expect("No such parameter");
     ///     stmt.raw_bind_parameter(name_index, "foo")?;
     ///     stmt.raw_bind_parameter(2, 100)?;
-    ///     let mut rows = stmt.raw_query();
-    ///     while let Some(row) = rows.next()? {
+    ///     let rows = stmt.raw_query();
+    ///     for result_row in rows {
+    ///         let row = result_row?;
     ///         // ...
     ///     }
     ///     Ok(())
@@ -972,7 +966,7 @@ mod test {
         assert_eq!(
             db.execute(
                 "INSERT INTO foo(x) VALUES (:x)",
-                crate::named_params! {":x": 3i32}
+                crate::named_params! {":x": 3i32},
             )?,
             1
         );
@@ -982,7 +976,7 @@ mod test {
             db.query_row_named::<i32, _>(
                 "SELECT SUM(x) FROM foo WHERE x > :x",
                 &[(":x", &0i32)],
-                |r| r.get(0)
+                |r| r.get(0),
             )?
         );
         assert_eq!(
@@ -990,7 +984,7 @@ mod test {
             db.query_row::<i32, _, _>(
                 "SELECT SUM(x) FROM foo WHERE x > :x",
                 &[(":x", &1i32)],
-                |r| r.get(0)
+                |r| r.get(0),
             )?
         );
         Ok(())
@@ -1033,14 +1027,14 @@ mod test {
         // legacy `_named` api
         {
             let mut rows = stmt.query_named(&[(":name", &"one")])?;
-            let id: Result<i32> = rows.next()?.unwrap().get(0);
+            let id: Result<i32> = rows.next().unwrap()?.get(0);
             assert_eq!(Ok(1), id);
         }
 
         // plain api
         {
             let mut rows = stmt.query(&[(":name", "one")])?;
-            let id: Result<i32> = rows.next()?.unwrap().get(0);
+            let id: Result<i32> = rows.next().unwrap()?.get(0);
             assert_eq!(Ok(1), id);
         }
         Ok(())
@@ -1184,13 +1178,13 @@ mod test {
             stmt.raw_bind_parameter(2, 50)?;
             let mut rows = stmt.raw_query();
             {
-                let row = rows.next()?.unwrap();
+                let row = rows.next().unwrap()?;
                 let name: String = row.get(0)?;
                 assert_eq!(name, "example");
                 let value: i32 = row.get(1)?;
                 assert_eq!(value, 50);
             }
-            assert!(rows.next()?.is_none());
+            assert!(rows.next().is_none());
         }
 
         Ok(())

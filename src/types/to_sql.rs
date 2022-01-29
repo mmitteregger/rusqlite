@@ -418,7 +418,7 @@ mod test {
         let mut stmt = db.prepare("SELECT id, label FROM foo WHERE id = ?")?;
 
         let mut rows = stmt.query(params![id])?;
-        let row = rows.next()?.unwrap();
+        let row = rows.next().unwrap()?;
 
         let found_id: Uuid = row.get_unwrap(0);
         let found_label: String = row.get_unwrap(1);

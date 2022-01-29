@@ -1,5 +1,3 @@
-use fallible_iterator::FallibleIterator;
-use fallible_streaming_iterator::FallibleStreamingIterator;
 use std::convert;
 
 use super::{Error, Result, Statement};
@@ -9,7 +7,6 @@ use crate::types::{FromSql, FromSqlError, ValueRef};
 #[must_use = "Rows is lazy and will do nothing unless consumed"]
 pub struct Rows<'stmt> {
     pub(crate) stmt: Option<&'stmt Statement<'stmt>>,
-    row: Option<Row<'stmt>>,
 }
 
 impl<'stmt> Rows<'stmt> {
@@ -20,36 +17,14 @@ impl<'stmt> Rows<'stmt> {
         }
     }
 
-    /// Attempt to get the next row from the query. Returns `Ok(Some(Row))` if
-    /// there is another row, `Err(...)` if there was an error
-    /// getting the next row, and `Ok(None)` if all rows have been retrieved.
-    ///
-    /// ## Note
-    ///
-    /// This interface is not compatible with Rust's `Iterator` trait, because
-    /// the lifetime of the returned row is tied to the lifetime of `self`.
-    /// This is a fallible "streaming iterator". For a more natural interface,
-    /// consider using [`query_map`](crate::Statement::query_map) or
-    /// [`query_and_then`](crate::Statement::query_and_then) instead, which
-    /// return types that implement `Iterator`.
-    #[allow(clippy::should_implement_trait)] // cannot implement Iterator
-    #[inline]
-    pub fn next(&mut self) -> Result<Option<&Row<'stmt>>> {
-        self.advance()?;
-        Ok((*self).get())
-    }
-
-    /// Map over this `Rows`, converting it to a [`Map`], which
-    /// implements `FallibleIterator`.
+    /// Map over this `Rows`, converting it to a [`Map`].
     /// ```rust,no_run
-    /// use fallible_iterator::FallibleIterator;
     /// # use rusqlite::{Result, Statement};
     /// fn query(stmt: &mut Statement) -> Result<Vec<i64>> {
     ///     let rows = stmt.query([])?;
     ///     rows.map(|r| r.get(0)).collect()
     /// }
     /// ```
-    // FIXME Hide FallibleStreamingIterator::map
     #[inline]
     pub fn map<F, B>(self, f: F) -> Map<'stmt, F>
     where
@@ -91,14 +66,14 @@ impl<'stmt> Rows<'stmt> {
     pub(crate) fn new(stmt: &'stmt Statement<'stmt>) -> Rows<'stmt> {
         Rows {
             stmt: Some(stmt),
-            row: None,
         }
     }
 
     #[inline]
-    pub(crate) fn get_expected_row(&mut self) -> Result<&Row<'stmt>> {
-        match self.next()? {
-            Some(row) => Ok(row),
+    pub(crate) fn get_expected_row(&mut self) -> Result<Row<'stmt>> {
+        match self.next() {
+            Some(Ok(row)) => Ok(row),
+            Some(Err(error)) => Err(error),
             None => Err(Error::QueryReturnedNoRows),
         }
     }
@@ -119,18 +94,18 @@ pub struct Map<'stmt, F> {
     f: F,
 }
 
-impl<F, B> FallibleIterator for Map<'_, F>
+impl<F, B> Iterator for Map<'_, F>
 where
     F: FnMut(&Row<'_>) -> Result<B>,
 {
-    type Error = Error;
-    type Item = B;
+    type Item = Result<B>;
 
     #[inline]
-    fn next(&mut self) -> Result<Option<B>> {
-        match self.rows.next()? {
-            Some(v) => Ok(Some((self.f)(v)?)),
-            None => Ok(None),
+    fn next(&mut self) -> Option<Result<B>> {
+        match self.rows.next() {
+            Some(Ok(ref row)) => Some((self.f)(row)),
+            Some(Err(error)) => Some(Err(error)),
+            None => None,
         }
     }
 }
@@ -145,19 +120,22 @@ pub struct MappedRows<'stmt, F> {
     map: F,
 }
 
-impl<T, F> Iterator for MappedRows<'_, F>
+impl<'stmt, T, F> Iterator for MappedRows<'stmt, F>
 where
-    F: FnMut(&Row<'_>) -> Result<T>,
+    F: FnMut(&Row<'stmt>) -> Result<T>,
 {
     type Item = Result<T>;
 
     #[inline]
     fn next(&mut self) -> Option<Result<T>> {
-        let map = &mut self.map;
         self.rows
             .next()
-            .transpose()
-            .map(|row_result| row_result.and_then(map))
+            .map(|row_result| {
+                match row_result {
+                    Ok(ref row) => (self.map)(row),
+                    Err(error) => Err(error),
+                }
+            })
     }
 }
 
@@ -178,64 +156,36 @@ where
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        let map = &mut self.map;
         self.rows
             .next()
-            .transpose()
-            .map(|row_result| row_result.map_err(E::from).and_then(map))
+            .map(|row_result| {
+                match row_result {
+                    Ok(ref row) => (self.map)(row),
+                    Err(error) => Err(E::from(error)),
+                }
+            })
     }
 }
 
-/// `FallibleStreamingIterator` differs from the standard library's `Iterator`
-/// in two ways:
-/// * each call to `next` (`sqlite3_step`) can fail.
-/// * returned `Row` is valid until `next` is called again or `Statement` is
-///   reset or finalized.
-///
-/// While these iterators cannot be used with Rust `for` loops, `while let`
-/// loops offer a similar level of ergonomics:
-/// ```rust,no_run
-/// # use rusqlite::{Result, Statement};
-/// fn query(stmt: &mut Statement) -> Result<()> {
-///     let mut rows = stmt.query([])?;
-///     while let Some(row) = rows.next()? {
-///         // scan columns value
-///     }
-///     Ok(())
-/// }
-/// ```
-impl<'stmt> FallibleStreamingIterator for Rows<'stmt> {
-    type Error = Error;
-    type Item = Row<'stmt>;
+impl<'stmt> Iterator for Rows<'stmt> {
+    type Item = Result<Row<'stmt>>;
 
-    #[inline]
-    fn advance(&mut self) -> Result<()> {
-        if let Some(stmt) = self.stmt {
-            match stmt.step() {
-                Ok(true) => {
-                    self.row = Some(Row { stmt });
-                    Ok(())
-                }
-                Ok(false) => {
-                    self.reset();
-                    self.row = None;
-                    Ok(())
-                }
-                Err(e) => {
-                    self.reset();
-                    self.row = None;
-                    Err(e)
-                }
+    fn next(&mut self) -> Option<Result<Row<'stmt>>> {
+        let stmt = self.stmt?;
+
+        match stmt.step() {
+            Ok(true) => {
+                Some(Ok(Row { stmt }))
             }
-        } else {
-            self.row = None;
-            Ok(())
+            Ok(false) => {
+                self.reset();
+                None
+            }
+            Err(e) => {
+                self.reset();
+                Some(Err(e))
+            }
         }
-    }
-
-    #[inline]
-    fn get(&self) -> Option<&Row<'stmt>> {
-        self.row.as_ref()
     }
 }
 
@@ -397,13 +347,13 @@ impl RowIndex for &'_ str {
 
 macro_rules! tuple_try_from_row {
     ($($field:ident),*) => {
-        impl<'a, $($field,)*> convert::TryFrom<&'a Row<'a>> for ($($field,)*) where $($field: FromSql,)* {
+        impl<'stmt, $($field,)*> convert::TryFrom<Row<'stmt>> for ($($field,)*) where $($field: FromSql,)* {
             type Error = crate::Error;
 
             // we end with index += 1, which rustc warns about
             // unused_variables and unused_mut are allowed for ()
             #[allow(unused_assignments, unused_variables, unused_mut)]
-            fn try_from(row: &'a Row<'a>) -> Result<Self> {
+            fn try_from(row: Row<'stmt>) -> Result<Self> {
                 let mut index = 0;
                 $(
                     #[allow(non_snake_case)]

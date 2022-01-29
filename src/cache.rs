@@ -180,7 +180,6 @@ impl StatementCache {
 mod test {
     use super::StatementCache;
     use crate::{Connection, Result};
-    use fallible_iterator::FallibleIterator;
 
     impl StatementCache {
         fn clear(&self) {
@@ -288,7 +287,7 @@ mod test {
 
         {
             let mut stmt = db.prepare_cached(sql)?;
-            assert_eq!(Ok(Some(1i32)), stmt.query([])?.map(|r| r.get(0)).next());
+            assert_eq!(Some(Ok(1i32)), stmt.query([])?.map(|r| r.get(0)).next());
         }
 
         db.execute_batch(
@@ -301,7 +300,7 @@ mod test {
         {
             let mut stmt = db.prepare_cached(sql)?;
             assert_eq!(
-                Ok(Some((1i32, 2i32))),
+                Some(Ok((1i32, 2i32))),
                 stmt.query([])?.map(|r| Ok((r.get(0)?, r.get(1)?))).next()
             );
         }
