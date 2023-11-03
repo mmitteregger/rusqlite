@@ -1010,8 +1010,13 @@ impl<'conn> Iterator for Batch<'conn, '_> {
 }
 
 bitflags::bitflags! {
-    /// Flags for opening SQLite database connections.
-    /// See [sqlite3_open_v2](http://www.sqlite.org/c3ref/open.html) for details.
+    /// Flags for opening SQLite database connections. See
+    /// [sqlite3_open_v2](https://www.sqlite.org/c3ref/open.html) for details.
+    ///
+    /// The default open flags are `SQLITE_OPEN_READ_WRITE | SQLITE_OPEN_CREATE
+    /// | SQLITE_OPEN_URI | SQLITE_OPEN_NO_MUTEX`. See [`Connection::open`] for
+    /// some discussion about these flags.
+    #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
     #[repr(C)]
     pub struct OpenFlags: ::std::os::raw::c_int {
         /// The database is opened in read-only mode.
